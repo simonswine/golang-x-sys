@@ -227,6 +227,13 @@ type RawSockaddrHCI struct {
 	Channel uint16
 }
 
+type RawSockaddrRFCOMM struct {
+	Family    uint16
+	Bdaddr    [6]uint8
+	Channel   uint8
+	Pad_cgo_0 [1]byte
+}
+
 type RawSockaddrCAN struct {
 	Family    uint16
 	Pad_cgo_0 [2]byte
@@ -379,6 +386,7 @@ const (
 	SizeofSockaddrLinklayer = 0x14
 	SizeofSockaddrNetlink   = 0xc
 	SizeofSockaddrHCI       = 0x6
+	SizeofSockaddrRFCOMM    = 0xa
 	SizeofSockaddrCAN       = 0x10
 	SizeofSockaddrALG       = 0x58
 	SizeofSockaddrVM        = 0x10

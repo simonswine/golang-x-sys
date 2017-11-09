@@ -136,7 +136,7 @@ func Getsockname(fd int) (sa Sockaddr, err error) {
 	if err = getsockname(fd, &rsa, &len); err != nil {
 		return
 	}
-	return anyToSockaddr(&rsa)
+	return anyToSockaddr(&rsa, fd)
 }
 
 const ImplementsGetwd = true
@@ -362,7 +362,7 @@ func Futimes(fd int, tv []Timeval) error {
 	return futimesat(fd, nil, (*[2]Timeval)(unsafe.Pointer(&tv[0])))
 }
 
-func anyToSockaddr(rsa *RawSockaddrAny) (Sockaddr, error) {
+func anyToSockaddr(rsa *RawSockaddrAny, _ int) (Sockaddr, error) {
 	switch rsa.Addr.Family {
 	case AF_UNIX:
 		pp := (*RawSockaddrUnix)(unsafe.Pointer(rsa))
@@ -413,7 +413,7 @@ func Accept(fd int) (nfd int, sa Sockaddr, err error) {
 	if nfd == -1 {
 		return
 	}
-	sa, err = anyToSockaddr(&rsa)
+	sa, err = anyToSockaddr(&rsa, nfd)
 	if err != nil {
 		Close(nfd)
 		nfd = 0
@@ -450,7 +450,7 @@ func Recvmsg(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from
 	oobn = int(msg.Accrightslen)
 	// source address is only specified if the socket is unconnected
 	if rsa.Addr.Family != AF_UNSPEC {
-		from, err = anyToSockaddr(&rsa)
+		from, err = anyToSockaddr(&rsa, fd)
 	}
 	return
 }

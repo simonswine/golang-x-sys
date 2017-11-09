@@ -468,6 +468,37 @@ func (sa *SockaddrHCI) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	return unsafe.Pointer(&sa.raw), SizeofSockaddrHCI, nil
 }
 
+// SockaddrRFCOMM implements the Sockaddr interface for AF_BLUETOOTH's RFCOMM
+// sockets. Parameters are the channel to use and the bluetooth address of the
+// remote device.
+//
+//     // open a connection to a remote bluetooth address 10:11:12:13:14:15
+//     fd, _ := unix.Socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM)
+//     addr := &SockaddrRFCOMM{
+//         BDAddr:  [6]uint8(0x10,0x11,0x12,0x13,0x14,0x15),
+//         Channel: uint8(1),
+//     }
+//     Connect(fd, addr)
+//
+//     // get bluetooth address of the local adapter
+//     localSockaddr, _ := Getsockname(fd)
+//     localSockaddrRFCOMM, _ := localSockaddr.(*SockaddrRFCOMM)
+//
+type SockaddrRFCOMM struct {
+	BDAddr  [6]uint8
+	Channel uint8
+	raw     RawSockaddrRFCOMM
+}
+
+func (sa *SockaddrRFCOMM) sockaddr() (unsafe.Pointer, _Socklen, error) {
+	sa.raw.Family = AF_BLUETOOTH
+	sa.raw.Channel = sa.Channel
+	for i, _ := range sa.BDAddr {
+		sa.raw.Bdaddr[6-1-i] = sa.BDAddr[i]
+	}
+	return unsafe.Pointer(&sa.raw), SizeofSockaddrRFCOMM, nil
+}
+
 // SockaddrCAN implements the Sockaddr interface for AF_CAN type sockets.
 // The RxID and TxID fields are used for transport protocol addressing in
 // (CAN_TP16, CAN_TP20, CAN_MCNET, and CAN_ISOTP), they can be left with
@@ -630,7 +661,7 @@ func (sa *SockaddrVM) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	return unsafe.Pointer(&sa.raw), SizeofSockaddrVM, nil
 }
 
-func anyToSockaddr(rsa *RawSockaddrAny) (Sockaddr, error) {
+func anyToSockaddr(rsa *RawSockaddrAny, fd int) (Sockaddr, error) {
 	switch rsa.Addr.Family {
 	case AF_NETLINK:
 		pp := (*RawSockaddrNetlink)(unsafe.Pointer(rsa))
@@ -707,6 +738,24 @@ func anyToSockaddr(rsa *RawSockaddrAny) (Sockaddr, error) {
 			Port: pp.Port,
 		}
 		return sa, nil
+
+	case AF_BLUETOOTH:
+		// find out socket protocol, to choose the right sockaddr type
+		sockProtocol, err := GetsockoptInt(fd, SOL_SOCKET, SO_PROTOCOL)
+		if err != nil {
+			return nil, err
+		}
+
+		if sockProtocol == BTPROTO_RFCOMM {
+			pp := (*RawSockaddrRFCOMM)(unsafe.Pointer(rsa))
+			sa := &SockaddrRFCOMM{
+				Channel: pp.Channel,
+			}
+			for i, _ := range pp.Bdaddr {
+				sa.BDAddr[6-1-i] = pp.Bdaddr[i]
+			}
+			return sa, nil
+		}
 	}
 	return nil, EAFNOSUPPORT
 }
@@ -718,7 +767,7 @@ func Accept(fd int) (nfd int, sa Sockaddr, err error) {
 	if err != nil {
 		return
 	}
-	sa, err = anyToSockaddr(&rsa)
+	sa, err = anyToSockaddr(&rsa, nfd)
 	if err != nil {
 		Close(nfd)
 		nfd = 0
@@ -736,7 +785,7 @@ func Accept4(fd int, flags int) (nfd int, sa Sockaddr, err error) {
 	if len > SizeofSockaddrAny {
 		panic("RawSockaddrAny too small")
 	}
-	sa, err = anyToSockaddr(&rsa)
+	sa, err = anyToSockaddr(&rsa, nfd)
 	if err != nil {
 		Close(nfd)
 		nfd = 0
@@ -750,7 +799,7 @@ func Getsockname(fd int) (sa Sockaddr, err error) {
 	if err = getsockname(fd, &rsa, &len); err != nil {
 		return
 	}
-	return anyToSockaddr(&rsa)
+	return anyToSockaddr(&rsa, fd)
 }
 
 func GetsockoptInet4Addr(fd, level, opt int) (value [4]byte, err error) {
@@ -953,7 +1002,7 @@ func Recvmsg(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from
 	recvflags = int(msg.Flags)
 	// source address is only specified if the socket is unconnected
 	if rsa.Addr.Family != AF_UNSPEC {
-		from, err = anyToSockaddr(&rsa)
+		from, err = anyToSockaddr(&rsa, fd)
 	}
 	return
 }
